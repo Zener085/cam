@@ -420,6 +420,85 @@ def nulls(tlist: list[tuple[Any, javalang.tree.ClassDeclaration]]) -> int:
     return null_count
 
 
+def _count_reference_basic_types(variables: list[Any], declarations: dict[str, int]) -> None:
+    """Count number of basic and reference types in the field declaration.
+    r:type: None
+    """
+    for variable in variables:
+        if isinstance(variable, javalang.tree.ReferenceType):
+            declarations["reference_types"] += 1
+        elif isinstance(variable, javalang.tree.BasicType):
+            declarations["basic_types"] += 1
+
+
+def _count_statements(statements: list[Any], declarations: dict[str, int]) -> None:
+    """Count number of statements in method.
+    r:type: None
+    """
+    for statement in statements:
+        if isinstance(statement, javalang.tree.ReturnStatement):
+            declarations["return_statements"] += 1
+            if isinstance(statement.expression, javalang.tree.Literal):
+                declarations["literals"] += 1
+        elif isinstance(statement, javalang.tree.VariableDeclarator):
+            declarations["variable_declarators"] += 1
+            if isinstance(statement.type, javalang.tree.ReferenceType):
+                declarations["reference_types"] += 1
+            elif isinstance(statement.type, javalang.tree.BasicType):
+                declarations["basic_types"] += 1
+        elif isinstance(statement, javalang.tree.Literal):
+            declarations["literals"] += 1
+
+
+def wmfp(tlist: list[tuple[list[str], javalang.tree.ClassDeclaration]]) -> int:
+    """Count Weighted Micro Function Points.
+    :rtype: int
+    """
+    declaration_names = [
+        "class_declarations",
+        "annotations",
+        "field_declarations",
+        "method_declarations",
+        "reference_types",
+        "variable_declarators",
+        "basic_types",
+        "literals",
+        "return_statements",
+    ]
+    declarations = {k: 0 for k in declaration_names}
+
+    for _, class_declaration in tlist:
+        for member in class_declaration:
+            member_type = member[1]
+            if isinstance(member_type, javalang.tree.ClassDeclaration):
+                declarations["class_declarations"] += 1
+            elif isinstance(member_type, javalang.tree.Annotation):
+                declarations["annotations"] += 1
+            elif isinstance(member_type, javalang.tree.FieldDeclaration):
+                variables = member[0][1]
+                declarations["field_declarations"] += len(variables)
+                _count_reference_basic_types(variables, declarations)
+            elif isinstance(member_type, javalang.tree.MethodDeclaration):
+                declarations["method_declarations"] += 1
+                statements = member[1].body
+                _count_statements(statements, declarations)
+            elif isinstance(member_type, javalang.tree.TypeParameter):
+                declarations["reference_types"] += 1
+
+    unadjusted_fp = sum(declarations.values())
+
+    complexity_adjustment = 0.65 * sum((
+        len(str(member))
+        for _, class_declaration in tlist
+        for member in class_declaration
+        if isinstance(member[1], (javalang.tree.MethodDeclaration, javalang.tree.FieldDeclaration))
+    ))
+
+    wmfp_value = unadjusted_fp * complexity_adjustment
+
+    return int(wmfp_value)
+
+
 class NotClassError(Exception):
     """If it's not a class"""
 
@@ -502,6 +581,8 @@ if __name__ == '__main__':
                              f'Number of NULL References\n')
                 metric.write(f'DOER {doer(tree_class)} '
                              f'Data vs Object Encapsulation Ratio\n')
+                metric.write(f'wmfp {wmfp(tree_class)} '
+                             f'Weighted Micro Function Points\n')
         except FileNotFoundError as exception:
             message = f"{type(exception).__name__} {str(exception)}: {java}"
             sys.exit(message)
